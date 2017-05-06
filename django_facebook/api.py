@@ -313,6 +313,10 @@ class FacebookUserConverter(object):
         '''
         user_data = facebook_profile_data.copy()
         profile = facebook_profile_data.copy()
+
+        logger.info('MOY FB USERDATA: %s', str(user_data))
+        logger.info('MOY FB PROFILE: %s', str(profile))
+
         website = profile.get('website')
         if website:
             user_data['website_url'] = cls._extract_url(website)
@@ -334,7 +338,7 @@ class FacebookUserConverter(object):
         user_data['password2'], user_data['password1'] = (
             cls._generate_fake_password(),) * 2  # same as double equal
 
-        facebook_map = dict(birthday='date_of_birth',
+        facebook_map = dict(birthday='date_of_birth', website='website_url',
                             about='about_me', id='facebook_id')
         for k, v in facebook_map.items():
             user_data[v] = user_data.get(k)
@@ -345,6 +349,30 @@ class FacebookUserConverter(object):
 
         user_data['date_of_birth'] = cls._parse_data_of_birth(
             user_data['date_of_birth'])
+
+        # for a profile model with birth_month/day/year fields instead of a DOB field
+        # (which makes better sense if you want year to be optional)
+        bday = user_data.get('birthday','')
+        if bday:
+            if bday.count('/') == 2:
+                try:
+                    b_m, b_d, b_y = bday.split('/')
+                    if int(b_m) and int(b_d) and int(b_d):
+                        user_data['birth_month'] = b_m
+                        user_data['birth_day'] = b_d
+                        user_data['birth_year'] = b_y
+                except:
+                    # date string was bad, just don't add anything to the user_data
+                    pass
+            elif bday.count('/') == 1:
+                try:
+                    b_m, b_d = bday.split('/')
+                    if int(b_m) <= 12 and int(b_d) and int(b_d) <=31:
+                        user_data['birth_month'] = b_m
+                        user_data['birth_day'] = b_d
+                except:
+                    # date string was bad, just don't add anything to the user_data
+                    pass
 
         if username:
             user_data['username'] = cls._create_unique_username(
@@ -475,6 +503,7 @@ class FacebookUserConverter(object):
         '''
         username = None
 
+        # *** This link approach no longer works; fb hides their usernames now ***
         # start by checking the public profile link (your facebook username)
         link = facebook_data.get('link')
         if link:
@@ -483,14 +512,14 @@ class FacebookUserConverter(object):
             if username and 'profilephp' in username:
                 username = None
 
+        # favor name over email. (prefer not to expose any part of user's email address)
+        if not username:
+            username = cls._make_username(facebook_data.get('name'))
+
         # try the email adress next
         if not username and 'email' in facebook_data:
             username = cls._make_username(facebook_data.get(
                 'email').split('@')[0])
-
-        # last try the name of the user
-        if not username or len(username) < 4:
-            username = cls._make_username(facebook_data.get('name'))
 
         if not username:
             raise FacebookException('couldnt figure out a username')
